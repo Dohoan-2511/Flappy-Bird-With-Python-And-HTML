@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flappy Bird</title>
+    <style>
+        body { 
+            margin: 0; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            background: #000;
+            overflow: hidden;
+        }
+        canvas { 
+            display: block; 
+            touch-action: none; 
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            physics: {
+                default: 'arcade',
+                arcade: { gravity: { y: 0 } }
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            },
+            scale: {
+                mode: Phaser.Scale.FIT,
+                autoCenter: Phaser.Scale.CENTER_BOTH
+            },
+            fps: {
+                target: 60,
+                forceSetTimeOut: true
+            }
+        };
+
+        let game = new Phaser.Game(config);
+
+        let gravity = 0.25;
+        let bird_movement = 0;
+        let game_active = true;
+        let score = 0;
+        let high_core = 0;
+        let floor_x_pos = 0;
+        let bg, floor, bird, pipes, game_font, game_over_surface, flap_sound;
+        let pipe_spawn_timer = 0;
+        let pipe_gap = 350;
+        let pipe_spawn_interval = 1500; // Thời gian tạo cột (ms)
+
+        function preload() {
+            console.log("Preloading assets...");
+            this.load.image('bg', 'FileGame/assets/utt.png');
+            this.load.image('floor', 'FileGame/assets/floor.png');
+            this.load.image('bird', 'FileGame/assets/anhong.png');
+            this.load.image('pipe_surface', 'FileGame/assets/pipe-green.png');
+            this.load.image('game_over_surface', 'FileGame/assets/message.png');
+            this.load.audio('flap_sound', 'FileGame/sound/sfx_wing.wav');
+
+            this.load.on('filecomplete', (key) => {
+                console.log(`Loaded: ${key}`);
+            });
+            this.load.on('loaderror', (file) => {
+                console.error(`Failed to load: ${file.key}`);
+            });
+        }
+
+        function create() {
+            console.log("Creating scene...");
+            // Nền
+            bg = this.add.image(0, 0, 'bg').setOrigin(0, 0);
+            bg.setScale(window.innerWidth / bg.width, window.innerHeight / bg.height);
+
+            // Sàn
+            floor = this.add.tileSprite(0, window.innerHeight - 112, window.innerWidth, 112, 'floor').setOrigin(0, 0);
+            floor.setScale(2);
+
+            // Chim
+            bird = this.add.sprite(100, window.innerHeight / 2, 'bird');
+            bird.setScale(2);
+
+            // Ống
+            pipes = this.add.group();
+
+            // Điểm số
+            game_font = this.add.text(0, 0, '', { font: '40px Arial', fill: '#fff' });
+
+            // Game over
+            game_over_surface = this.add.image(window.innerWidth / 2, window.innerHeight / 2 - 50, 'game_over_surface').setVisible(false);
+
+            // Âm thanh
+            flap_sound = this.sound.add('flap_sound');
+
+            // Sự kiện phím
+            this.input.keyboard.on('keydown-SPACE', function() {
+                if (game_active) {
+                    bird_movement = -7;
+                    flap_sound.play();
+                } else {
+                    game_active = true;
+                    pipes.clear(true, true);
+                    bird.setPosition(100, window.innerHeight / 2);
+                    bird_movement = 0;
+                    score = 0;
+                    game_over_surface.setVisible(false);
+                }
+            });
+
+            // Sự kiện chạm (cho thiết bị di động)
+            this.input.on('pointerdown', function() {
+                if (game_active) {
+                    bird_movement = -7;
+                    flap_sound.play();
+                } else {
+                    game_active = true;
+                    pipes.clear(true, true);
+                    bird.setPosition(100, window.innerHeight / 2);
+                    bird_movement = 0;
+                    score = 0;
+                    game_over_surface.setVisible(false);
+                }
+            });
+        }
+
+        function create_pipe() {
+            let random_pipe_pos = Phaser.Math.Between(100, window.innerHeight - 300);
+            let bottom_pipe = pipes.create(window.innerWidth, random_pipe_pos + pipe_gap, 'pipe_surface').setScale(2);
+            let top_pipe = pipes.create(window.innerWidth, random_pipe_pos - pipe_gap, 'pipe_surface').setScale(2).setFlipY(true);
+            console.log("Created pipes at y:", random_pipe_pos, "Bottom y:", bottom_pipe.y, "Top y:", top_pipe.y);
+            return [bottom_pipe, top_pipe];
+        }
+
+        function move_pipes() {
+            pipes.children.iterate(function(pipe) {
+                if (pipe && pipe.active) {
+                    pipe.x -= 5;
+                    if (pipe.x < -pipe.width * 2) {
+                        pipe.destroy();
+                        console.log("Pipe removed at x:", pipe.x);
+                    }
+                }
+            });
+        }
+
+        function draw_floor() {
+            floor.tilePositionX -= 1;
+            if (floor.tilePositionX <= -floor.width) {
+                floor.tilePositionX = 0;
+            }
+        }
+
+        function check_collision() {
+            let collision = false;
+            pipes.children.iterate(function(pipe) {
+                if (pipe && pipe.active) {
+                    if (Phaser.Geom.Intersects.RectangleToRectangle(bird.getBounds(), pipe.getBounds())) {
+                        collision = true;
+                        console.log("Collision detected with pipe at x:", pipe.x);
+                    }
+                }
+            });
+            return collision || bird.y <= -75 || bird.y >= window.innerHeight;
+        }
+
+        function rotate_bird() {
+            bird.angle = -bird_movement * 3;
+        }
+
+        function score_display(game_state) {
+            if (game_state === 'main_game') {
+                game_font.setText(`Số môn Huy sẽ qua: ${Math.floor(score)}`);
+                game_font.setPosition(window.innerWidth / 2 - game_font.width / 2, 50);
+            } else if (game_state === 'game_over') {
+                game_font.setText(`Số môn: ${Math.floor(score)}\nSố môn cao nhất: ${Math.floor(high_core)}`);
+                game_font.setPosition(window.innerWidth / 2 - game_font.width / 2, 50);
+            }
+        }
+
+        function update_score() {
+            if (score > high_core) {
+                high_core = score;
+            }
+        }
+
+        function update(time, delta) {
+            bird_movement += gravity;
+            bird.y += bird_movement;
+            rotate_bird();
+
+            // Tạo cột đều đặn
+            pipe_spawn_timer += delta;
+            if (pipe_spawn_timer >= pipe_spawn_interval && game_active) {
+                create_pipe();
+                pipe_spawn_timer = 0; // Reset timer ngay sau khi tạo cột
+            }
+
+            if (game_active) {
+                move_pipes();
+                if (check_collision()) {
+                    game_active = false;
+                    pipes.clear(true, true);
+                }
+                score += 0.01;
+                score_display('main_game');
+            } else {
+                game_over_surface.setVisible(true);
+                update_score();
+                score_display('game_over');
+            }
+
+            draw_floor();
+        }
+    </script>
+</body>
+</html>
